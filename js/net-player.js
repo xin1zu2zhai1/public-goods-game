@@ -1,9 +1,10 @@
 // 参加者側の通信。ホストへ「直接（WebRTC）」でつなぎに行き、少し待ってもつながらなければ
 // 「PeerJS 中継」「MQTT 中継」（どちらも暗号化）も同時に試し、最初につながった方を使う。
 // スマホのモバイル回線などで直接つながらなくても、中継で参加できる。
+// 直接と PeerJS 中継は、PeerJS のサーバーへの接続（Peer）を1本だけ作って共用する。
 // 切れたら自動でつなぎ直す。
 /* global Peer */
-import { dialRelay, dialSignal } from './relay.js?v=1.4.0';
+import { dialRelay, dialSignal, peerReady } from './relay.js?v=1.5.0';
 
 const PING_EVERY = 4000;
 const STALE_AFTER = 15000;
@@ -11,15 +12,14 @@ const P2P_TIMEOUT = 12000;
 const RELAY_TIMEOUT = 15000;
 const RELAY_DELAY = 2500;
 
-/** 直接（WebRTC）でホストにつなぐ。つながったら channel を返す。 */
-export function dialP2P({ hostId, peerOptions, timeout = P2P_TIMEOUT }) {
+/** 直接（WebRTC）でホストにつなぐ。peer は共用。つながったら channel を返す。 */
+export function dialP2P({ hostId, peer, timeout = P2P_TIMEOUT }) {
   return new Promise((resolve, reject) => {
-    if (typeof Peer === 'undefined' || typeof RTCPeerConnection === 'undefined') {
+    if (!peer || typeof RTCPeerConnection === 'undefined') {
       reject(new Error('p2p-unavailable'));
       return;
     }
     let settled = false;
-    let peer;
     let conn = null;
     const ch = {
       kind: 'p2p',
@@ -38,71 +38,66 @@ export function dialP2P({ hostId, peerOptions, timeout = P2P_TIMEOUT }) {
       close() {
         if (ch.closed) return;
         ch.closed = true;
+        cleanup();
         try {
           conn?.close();
         } catch {
           /* ignore */
         }
-        try {
-          peer?.destroy();
-        } catch {
-          /* ignore */
-        }
       },
+    };
+    const onError = (e) => {
+      if (settled) return;
+      if (e?.type === 'peer-unavailable') fail(Object.assign(new Error(e.type), { type: e.type }));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      peer.off('error', onError);
     };
     const fail = (err) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      cleanup();
       try {
-        peer?.destroy();
+        conn?.close();
       } catch {
         /* ignore */
       }
       reject(err);
     };
-    const timer = setTimeout(() => fail(new Error('timeout')), timeout);
-    try {
-      peer = new Peer({ debug: 0, ...peerOptions });
-    } catch (e) {
-      fail(e);
-      return;
-    }
-    peer.on('error', (err) => {
-      if (!settled) fail(Object.assign(new Error(err?.type || 'peer-error'), { type: err?.type }));
-    });
-    peer.on('open', () => {
-      if (settled) return;
-      conn = peer.connect(hostId, { reliable: true, serialization: 'json' });
-      if (!conn) {
-        fail(new Error('connect-failed'));
-        return;
-      }
-      conn.on('open', () => {
+    const timer = setTimeout(() => fail(Object.assign(new Error('timeout'), { type: 'timeout' })), timeout);
+    peer.on('error', onError);
+    peerReady(peer, timeout).then(
+      () => {
         if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(ch);
-      });
-      conn.on('data', (msg) => ch.onmessage?.(msg));
-      const lost = () => {
-        if (!settled) fail(new Error('closed'));
-        else if (!ch.closed) {
-          ch.closed = true;
-          try {
-            peer.destroy();
-          } catch {
-            /* ignore */
-          }
-          ch.onclose?.();
+        conn = peer.connect(hostId, { reliable: true, serialization: 'json' });
+        if (!conn) {
+          fail(new Error('connect-failed'));
+          return;
         }
-      };
-      conn.on('close', lost);
-      conn.on('error', lost);
-      conn.on('iceStateChanged', (s) => {
-        if (s === 'failed' || s === 'closed') lost();
-      });
-    });
+        conn.on('open', () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(ch);
+        });
+        conn.on('data', (msg) => ch.onmessage?.(msg));
+        const lost = () => {
+          if (!settled) fail(Object.assign(new Error('closed'), { type: 'closed' }));
+          else if (!ch.closed) {
+            ch.closed = true;
+            cleanup();
+            ch.onclose?.();
+          }
+        };
+        conn.on('close', lost);
+        conn.on('error', lost);
+        conn.on('iceStateChanged', (s) => {
+          if (s === 'failed' || s === 'closed') lost();
+        });
+      },
+      (e) => fail(e),
+    );
   });
 }
 
@@ -112,7 +107,7 @@ export class PlayerNet {
    * @param {string} opts.room
    * @param {string} opts.hostId          PeerJS 上のホストの ID
    * @param {object} opts.peerOptions
-   * @param {string[]} opts.brokers       中継に使う MQTT ブローカー（wss://…）
+   * @param {string[]} opts.brokers       MQTT 中継に使うブローカー（wss://…）
    * @param {'auto'|'p2p'|'relay'|'sig'|'mqtt'} opts.mode  relay = 中継の両方
    * @param {(status:string)=>void} opts.onStatus
    * @param {()=>void} opts.onOpen        つながったとき（hello を送る）
@@ -121,6 +116,7 @@ export class PlayerNet {
   constructor(opts) {
     this.opts = opts;
     this.ch = null;
+    this.peer = null;
     this.kind = '';
     this.stopped = false;
     this.everConnected = false;
@@ -152,6 +148,16 @@ export class PlayerNet {
     this._attempt();
   }
 
+  _destroyPeer(peer) {
+    if (!peer) return;
+    try {
+      peer.destroy();
+    } catch {
+      /* ignore */
+    }
+    if (this.peer === peer) this.peer = null;
+  }
+
   async _attempt() {
     if (this.stopped || this.attempting) return;
     this.attempting = true;
@@ -164,8 +170,35 @@ export class PlayerNet {
       mqtt: ['auto', 'relay', 'mqtt'].includes(mode) && Boolean(this.opts.brokers?.length),
     };
     // つながらなかったときに原因を表示するための記録
-    const diag = { p2p: use.p2p ? 'trying' : 'off', sig: use.sig ? 'trying' : 'off', relay: use.mqtt ? 'trying' : 'off' };
+    const diag = {
+      server: 'off',
+      serverMsg: '',
+      p2p: use.p2p ? 'trying' : 'off',
+      sig: use.sig ? 'trying' : 'off',
+      relay: use.mqtt ? 'trying' : 'off',
+    };
     this.diag = diag;
+
+    // PeerJS のサーバーへの接続は1本だけ作り、直接と PeerJS 中継で共用する
+    let peer = null;
+    if ((use.p2p || use.sig) && typeof Peer !== 'undefined') {
+      diag.server = 'trying';
+      try {
+        peer = new Peer({ debug: 0, ...this.opts.peerOptions });
+        peer.on('open', () => (diag.server = 'ok'));
+        peer.on('error', (e) => {
+          if (diag.server !== 'ok' && e?.type !== 'peer-unavailable') {
+            diag.server = e?.type || 'error';
+            diag.serverMsg = String(e?.message || '').slice(0, 80);
+          }
+        });
+      } catch (e) {
+        diag.server = 'error';
+        diag.serverMsg = String(e?.message || '').slice(0, 80);
+        peer = null;
+      }
+    }
+
     const track = (key, t) => {
       t.then(
         () => (diag[key] = 'ok'),
@@ -174,11 +207,11 @@ export class PlayerNet {
       return t;
     };
     const tries = [];
-    const p2p = use.p2p ? track('p2p', dialP2P({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions })) : null;
+    const p2p = use.p2p && peer ? track('p2p', dialP2P({ hostId: this.opts.hostId, peer })) : null;
     if (p2p) tries.push(p2p);
     const startRelays = () => {
       const list = [];
-      if (use.sig) list.push(track('sig', dialSignal({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions })));
+      if (use.sig && peer) list.push(track('sig', dialSignal({ hostId: this.opts.hostId, peer })));
       if (use.mqtt) list.push(track('relay', dialRelay({ room: this.opts.room, brokers: this.opts.brokers, timeout: RELAY_TIMEOUT })));
       tries.push(...list);
       return list;
@@ -220,6 +253,9 @@ export class PlayerNet {
     closeLosers();
     relays.then(closeLosers);
     this.attempting = false;
+    // PeerJS の接続は、直接か PeerJS 中継で使うときだけ残す
+    if (!winner || winner.kind === 'relay' || this.stopped) this._destroyPeer(peer);
+    else this.peer = peer;
     if (this.stopped) {
       winner?.close();
       return;
@@ -230,10 +266,10 @@ export class PlayerNet {
       this._scheduleRetry();
       return;
     }
-    this._use(winner);
+    this._use(winner, peer);
   }
 
-  _use(ch) {
+  _use(ch, peer) {
     this.ch = ch;
     this.kind = ch.kind;
     this.failures = 0;
@@ -248,6 +284,7 @@ export class PlayerNet {
     ch.onclose = () => {
       if (ch !== this.ch || this.stopped) return;
       this.ch = null;
+      if (ch.kind !== 'relay') this._destroyPeer(peer);
       this._status('reconnecting');
       this._scheduleRetry(500);
     };
@@ -267,6 +304,7 @@ export class PlayerNet {
     const ch = this.ch;
     this.ch = null;
     ch?.close();
+    this._destroyPeer(this.peer);
     clearTimeout(this.retryTimer);
     this._attempt();
   }
@@ -295,5 +333,6 @@ export class PlayerNet {
     const ch = this.ch;
     this.ch = null;
     ch?.close();
+    this._destroyPeer(this.peer);
   }
 }

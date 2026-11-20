@@ -1,7 +1,7 @@
-import { PlayerNet } from './net-player.js?v=1.4.0';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.4.0';
-import { lineChart, legend } from './chart.js?v=1.4.0';
-import { h, replace, yen, downloadText } from './dom.js?v=1.4.0';
+import { PlayerNet } from './net-player.js?v=1.5.0';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.5.0';
+import { lineChart, legend } from './chart.js?v=1.5.0';
+import { h, replace, yen, downloadText } from './dom.js?v=1.5.0';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
@@ -120,6 +120,8 @@ function describeDiag(d) {
       'peer-unavailable': 'ルームなし',
       timeout: '時間切れ',
       'p2p-unavailable': '非対応',
+      closed: '切断された',
+      'server-timeout': 'サーバーの応答なし',
       network: 'サーバーにつながらない',
       'server-error': 'サーバーにつながらない',
       'socket-error': 'サーバーにつながらない',
@@ -143,12 +145,16 @@ function describeDiag(d) {
       'no-reply': 'ホストの応答なし',
       timeout: '時間切れ',
       'sig-unavailable': '非対応',
+      'server-timeout': 'サーバーの応答なし',
       network: 'サーバーにつながらない',
       'server-error': 'サーバーにつながらない',
       'socket-error': 'サーバーにつながらない',
       'socket-closed': 'サーバーにつながらない',
     }[d.sig] ?? `失敗（${d.sig}）`;
-  return `詳細：直接＝${p2p}／PeerJS中継＝${sig}／MQTT中継＝${relay}`;
+  const server =
+    { off: '使用しない', trying: '確認中', ok: '接続OK', 'server-timeout': '応答なし' }[d.server] ??
+    `接続できない（${d.server}${d.serverMsg ? `：${d.serverMsg}` : ''}）`;
+  return `詳細：PeerJSサーバー＝${server}／直接＝${p2p}／PeerJS中継＝${sig}／MQTT中継＝${relay}`;
 }
 
 function leave(error = '') {
