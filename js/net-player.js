@@ -2,7 +2,7 @@
 // 先につながった方を使う。スマホのモバイル回線などで直接つながらなくても、中継で参加できる。
 // 切れたら自動でつなぎ直す。
 /* global Peer */
-import { dialRelay } from './relay.js';
+import { dialRelay } from './relay.js?v=1.2.0';
 
 const PING_EVERY = 4000;
 const STALE_AFTER = 15000;
@@ -157,8 +157,27 @@ export class PlayerNet {
     this._status(this.everConnected ? 'reconnecting' : 'connecting');
     const { mode = 'auto' } = this.opts;
     const tries = [];
-    if (mode !== 'relay') tries.push(dialP2P({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions }));
-    if (mode !== 'p2p' && this.opts.brokers?.length) tries.push(dialRelay({ room: this.opts.room, brokers: this.opts.brokers, timeout: RELAY_TIMEOUT }));
+    // つながらなかったときに原因を表示するための記録
+    const diag = { p2p: 'off', relay: 'off' };
+    this.diag = diag;
+    if (mode !== 'relay') {
+      diag.p2p = 'trying';
+      const t = dialP2P({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions });
+      t.then(
+        () => (diag.p2p = 'ok'),
+        (e) => (diag.p2p = e?.type || e?.message || 'error'),
+      );
+      tries.push(t);
+    }
+    if (mode !== 'p2p' && this.opts.brokers?.length) {
+      diag.relay = 'trying';
+      const t = dialRelay({ room: this.opts.room, brokers: this.opts.brokers, timeout: RELAY_TIMEOUT });
+      t.then(
+        () => (diag.relay = 'ok'),
+        (e) => (diag.relay = e?.relay ? { reason: e.message, ...e.relay } : e?.message || 'error'),
+      );
+      tries.push(t);
+    }
     let winner = null;
     try {
       winner = await Promise.any(tries);

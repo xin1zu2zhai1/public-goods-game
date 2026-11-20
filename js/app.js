@@ -1,7 +1,7 @@
-import { PlayerNet } from './net-player.js';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js';
-import { lineChart, legend } from './chart.js';
-import { h, replace, yen, downloadText } from './dom.js';
+import { PlayerNet } from './net-player.js?v=1.2.0';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.2.0';
+import { lineChart, legend } from './chart.js?v=1.2.0';
+import { h, replace, yen, downloadText } from './dom.js?v=1.2.0';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
@@ -20,6 +20,7 @@ const app = {
   viewSeq: 0,
   refused: null,
   joinError: '',
+  joinDiag: '',
   unavailable: 0,
   screenKey: '',
   screen: null,
@@ -109,7 +110,33 @@ function join(room, name) {
   render();
 }
 
+function describeDiag(d) {
+  if (!d) return '';
+  const p2p =
+    {
+      off: '使用しない',
+      trying: '確認中',
+      ok: 'OK',
+      'peer-unavailable': 'ルームなし',
+      timeout: '時間切れ',
+      'p2p-unavailable': '非対応',
+      network: 'サーバーにつながらない',
+      'server-error': 'サーバーにつながらない',
+      'socket-error': 'サーバーにつながらない',
+      'socket-closed': 'サーバーにつながらない',
+    }[d.p2p] ?? `失敗（${d.p2p}）`;
+  let relay;
+  if (typeof d.relay === 'object' && d.relay) {
+    const r = d.relay;
+    relay = r.connected === 0 ? `サーバーにつながらない（0/${r.total}）` : r.presence === 0 ? `サーバー ${r.connected}/${r.total}・ルームなし` : `サーバー ${r.connected}/${r.total}・応答なし`;
+  } else {
+    relay = { off: '使用しない', trying: '確認中', ok: 'OK', 'relay-unavailable': '非対応' }[d.relay] ?? `失敗（${d.relay}）`;
+  }
+  return `詳細：直接＝${p2p}／中継＝${relay}`;
+}
+
 function leave(error = '') {
+  app.joinDiag = error ? describeDiag(app.net?.diag) : '';
   app.net?.stop();
   app.net = null;
   app.view = null;
@@ -430,7 +457,12 @@ function screenJoin() {
     autocomplete: 'nickname',
     value: known?.name || lastName(),
   });
-  const err = h('p', { class: 'error', role: 'alert' }, app.joinError || '');
+  const err = h(
+    'div',
+    { role: 'alert' },
+    h('p', { class: 'error' }, app.joinError || ''),
+    app.joinDiag ? h('p', { class: 'note' }, app.joinDiag) : null,
+  );
   if (!app.joinError) err.hidden = true;
   const form = h(
     'form',

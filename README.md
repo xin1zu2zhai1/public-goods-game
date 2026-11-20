@@ -40,4 +40,7 @@ vendor/             PeerJS 1.5.5、MQTT.js 5.10.4（どちらも MIT ライセ�
 
 - `js/config.js` の `PEER_ID_PREFIX`・`PROTOCOL_VERSION`・`RELAY_BROKERS` は、ホスト側リポジトリと同じ値にしてください。
 - つながり方を調べるときは、URL に `&transport=relay`（中継だけ）または `&transport=p2p`（直接だけ）を付けて開きます。
+  つながらなかったときは、エラーの下に「詳細：直接＝…／中継＝…」が表示されます。
+- ファイルを変更して公開するときは、`node scripts/set-version.mjs 1.2.1` のように版数を上げてください（ホスト側も同じ版数に）。
+  画面下に版数が表示され、新しい版が公開されていれば開いたときに自動で読み込み直します。
 - ゲームのルールと計算はすべてホスト側（`public-goods-host/js/game.js`）で行い、この画面は受け取った結果を表示します。
