@@ -1,7 +1,7 @@
-import { PlayerNet } from './net-player.js?v=1.2.0';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.2.0';
-import { lineChart, legend } from './chart.js?v=1.2.0';
-import { h, replace, yen, downloadText } from './dom.js?v=1.2.0';
+import { PlayerNet } from './net-player.js?v=1.3.0';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.3.0';
+import { lineChart, legend } from './chart.js?v=1.3.0';
+import { h, replace, yen, downloadText } from './dom.js?v=1.3.0';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
@@ -127,8 +127,10 @@ function describeDiag(d) {
     }[d.p2p] ?? `失敗（${d.p2p}）`;
   let relay;
   if (typeof d.relay === 'object' && d.relay) {
-    const r = d.relay;
-    relay = r.connected === 0 ? `サーバーにつながらない（0/${r.total}）` : r.presence === 0 ? `サーバー ${r.connected}/${r.total}・ルームなし` : `サーバー ${r.connected}/${r.total}・応答なし`;
+    const list = d.relay.brokers ?? [];
+    relay = list.length
+      ? list.map((b) => `${b.label} ${!b.connected ? '×接続できない' : b.host ? '○ホストあり' : '○ホストなし'}`).join('、')
+      : `サーバー ${d.relay.connected}/${d.relay.total}`;
   } else {
     relay = { off: '使用しない', trying: '確認中', ok: 'OK', 'relay-unavailable': '非対応' }[d.relay] ?? `失敗（${d.relay}）`;
   }

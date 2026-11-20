@@ -2,7 +2,7 @@
 // 先につながった方を使う。スマホのモバイル回線などで直接つながらなくても、中継で参加できる。
 // 切れたら自動でつなぎ直す。
 /* global Peer */
-import { dialRelay } from './relay.js?v=1.2.0';
+import { dialRelay } from './relay.js?v=1.3.0';
 
 const PING_EVERY = 4000;
 const STALE_AFTER = 15000;
