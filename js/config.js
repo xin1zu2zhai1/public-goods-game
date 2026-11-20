@@ -7,6 +7,28 @@ export const PEER_ID_PREFIX = 'pgg7f3k-';
 export const PROTOCOL_VERSION = 1;
 
 /**
+ * 中継（リレー）に使う公開 MQTT ブローカー（WebSocket / wss）。
+ * ブラウザ同士が直接つながらないとき（スマホのモバイル回線など）に、ここを経由して通信する。
+ * 中身は暗号化されるので、ブローカーには読めない。ホスト側と参加者側で同じ一覧にすること。
+ * URL に ?relay=wss://…,wss://… を付けると差し替えられる（QRコードにも引き継がれる）。
+ */
+export const RELAY_BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://mqtt.eclipseprojects.io:443/mqtt',
+];
+
+export function relayBrokersFromParam(value) {
+  if (value === null || value === undefined || value === '') return RELAY_BROKERS;
+  if (value === 'off') return [];
+  const list = String(value)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => /^wss?:\/\/[^\s]+$/i.test(s));
+  return list.length ? list : RELAY_BROKERS;
+}
+
+/**
  * 接続サーバーの指定。通常は空（PeerJS の公開サーバーを使う）。
  * ホストが ?peer=... を付けて開いた場合は、QRコードにも同じ値が入る。
  */

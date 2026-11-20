@@ -15,6 +15,9 @@
 5. 罰則ルールがあるラウンドでは、結果を見てほかのメンバーに罰を与えるかどうかを決めます。
 6. ゲームが終わると、最終結果と振り返りの問いが表示されます。自分の記録はCSVで保存できます。
 
+ホストへは「直接（WebRTC）」と「中継（暗号化した MQTT 中継）」の両方で同時につなぎに行き、先につながった方を使います。
+スマホのモバイル回線など、直接つながらない環境でも中継で参加できます。右上に「接続OK（直接）」「接続OK（中継）」と表示されます。
+
 ゲーム中はこのページを開いたままにしてください。閉じてしまっても、同じ端末で同じQRコードから開き直せば続きから参加できます。
 右上の「文字 大」で文字を大きくできます。
 
@@ -28,11 +31,13 @@
 index.html          参加者画面
 css/player.css
 js/app.js           画面
-js/net-player.js    通信（PeerJS）。切れたら自動で再接続
-js/config.js        PeerID の接頭辞・通信形式のバージョン
+js/net-player.js    通信。直接（PeerJS）と中継を同時に試し、切れたら自動で再接続
+js/relay.js         中継通信（MQTT・ECDH + AES-GCM で暗号化）。ホスト側と同じファイル
+js/config.js        PeerID の接頭辞・通信形式のバージョン・中継ブローカーの一覧
 js/chart.js         グラフ（SVG）
-vendor/peerjs.min.js  PeerJS 1.5.5（MIT ライセンス）
+vendor/             PeerJS 1.5.5、MQTT.js 5.10.4（どちらも MIT ライセンス）
 ```
 
-- `js/config.js` の `PEER_ID_PREFIX` と `PROTOCOL_VERSION` は、ホスト側リポジトリと同じ値にしてください。
+- `js/config.js` の `PEER_ID_PREFIX`・`PROTOCOL_VERSION`・`RELAY_BROKERS` は、ホスト側リポジトリと同じ値にしてください。
+- つながり方を調べるときは、URL に `&transport=relay`（中継だけ）または `&transport=p2p`（直接だけ）を付けて開きます。
 - ゲームのルールと計算はすべてホスト側（`public-goods-host/js/game.js`）で行い、この画面は受け取った結果を表示します。

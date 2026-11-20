@@ -1,11 +1,14 @@
 import { PlayerNet } from './net-player.js';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, newPid } from './config.js';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js';
 import { lineChart, legend } from './chart.js';
 import { h, replace, yen, downloadText } from './dom.js';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
 const peerOptions = peerOptionsFromParam(peerParam);
+const relayBrokers = relayBrokersFromParam(params.get('relay'));
+// 接続方法の指定（トラブル調査用）：?transport=relay（中継のみ）/ p2p（直接のみ）/ auto（両方・通常）
+const transport = ['relay', 'p2p'].includes(params.get('transport')) ? params.get('transport') : 'auto';
 const $ = (id) => document.getElementById(id);
 
 const app = {
@@ -93,8 +96,11 @@ function join(room, name) {
   u.searchParams.set('room', room);
   history.replaceState(null, '', u);
   app.net = new PlayerNet({
+    room,
     hostId: PEER_ID_PREFIX + room,
     peerOptions,
+    brokers: relayBrokers,
+    mode: transport,
     onStatus,
     onOpen: () => app.net.send({ t: 'hello', v: PROTOCOL_VERSION, pid: app.identity.pid, name: app.identity.name }),
     onMessage,
@@ -116,8 +122,8 @@ function onStatus(s) {
   app.status = s;
   if (s === 'host-unavailable' && app.net && !app.net.everConnected) {
     app.unavailable++;
-    if (app.unavailable >= 3) {
-      leave('ルームが見つかりません。コードが正しいか、先生の画面が開いているかを確認してください。');
+    if (app.unavailable >= 2) {
+      leave('ルームにつながりませんでした。ルームコードが正しいか、先生の画面が開いているかを確認して、もう一度「参加する」を押してください。');
       return;
     }
   }
@@ -267,7 +273,7 @@ function renderHeader() {
   net.textContent = app.net
     ? {
         connecting: '接続中…',
-        connected: '接続OK',
+        connected: app.net.kind === 'relay' ? '接続OK（中継）' : '接続OK（直接）',
         reconnecting: '再接続中…',
         'host-unavailable': 'ルームを探しています…',
         error: 'エラー',
