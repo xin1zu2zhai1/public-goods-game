@@ -1,14 +1,14 @@
-import { PlayerNet } from './net-player.js?v=1.3.0';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.3.0';
-import { lineChart, legend } from './chart.js?v=1.3.0';
-import { h, replace, yen, downloadText } from './dom.js?v=1.3.0';
+import { PlayerNet } from './net-player.js?v=1.4.0';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.4.0';
+import { lineChart, legend } from './chart.js?v=1.4.0';
+import { h, replace, yen, downloadText } from './dom.js?v=1.4.0';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
 const peerOptions = peerOptionsFromParam(peerParam);
 const relayBrokers = relayBrokersFromParam(params.get('relay'));
-// 接続方法の指定（トラブル調査用）：?transport=relay（中継のみ）/ p2p（直接のみ）/ auto（両方・通常）
-const transport = ['relay', 'p2p'].includes(params.get('transport')) ? params.get('transport') : 'auto';
+// 接続方法の指定（トラブル調査用）：?transport=p2p（直接のみ）/ sig（PeerJS中継のみ）/ mqtt（MQTT中継のみ）/ relay（中継のみ）/ auto（通常）
+const transport = ['relay', 'p2p', 'sig', 'mqtt'].includes(params.get('transport')) ? params.get('transport') : 'auto';
 const $ = (id) => document.getElementById(id);
 
 const app = {
@@ -134,7 +134,21 @@ function describeDiag(d) {
   } else {
     relay = { off: '使用しない', trying: '確認中', ok: 'OK', 'relay-unavailable': '非対応' }[d.relay] ?? `失敗（${d.relay}）`;
   }
-  return `詳細：直接＝${p2p}／中継＝${relay}`;
+  const sig =
+    {
+      off: '使用しない',
+      trying: '確認中',
+      ok: 'OK',
+      'peer-unavailable': 'ルームなし',
+      'no-reply': 'ホストの応答なし',
+      timeout: '時間切れ',
+      'sig-unavailable': '非対応',
+      network: 'サーバーにつながらない',
+      'server-error': 'サーバーにつながらない',
+      'socket-error': 'サーバーにつながらない',
+      'socket-closed': 'サーバーにつながらない',
+    }[d.sig] ?? `失敗（${d.sig}）`;
+  return `詳細：直接＝${p2p}／PeerJS中継＝${sig}／MQTT中継＝${relay}`;
 }
 
 function leave(error = '') {
@@ -302,7 +316,7 @@ function renderHeader() {
   net.textContent = app.net
     ? {
         connecting: '接続中…',
-        connected: app.net.kind === 'relay' ? '接続OK（中継）' : '接続OK（直接）',
+        connected: app.net.kind === 'p2p' ? '接続OK（直接）' : '接続OK（中継）',
         reconnecting: '再接続中…',
         'host-unavailable': 'ルームを探しています…',
         error: 'エラー',

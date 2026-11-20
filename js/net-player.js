@@ -1,13 +1,15 @@
-// 参加者側の通信。ホストへ「直接（WebRTC / PeerJS）」と「中継（MQTT・暗号化）」の両方で同時につなぎに行き、
-// 先につながった方を使う。スマホのモバイル回線などで直接つながらなくても、中継で参加できる。
+// 参加者側の通信。ホストへ「直接（WebRTC）」でつなぎに行き、少し待ってもつながらなければ
+// 「PeerJS 中継」「MQTT 中継」（どちらも暗号化）も同時に試し、最初につながった方を使う。
+// スマホのモバイル回線などで直接つながらなくても、中継で参加できる。
 // 切れたら自動でつなぎ直す。
 /* global Peer */
-import { dialRelay } from './relay.js?v=1.3.0';
+import { dialRelay, dialSignal } from './relay.js?v=1.4.0';
 
 const PING_EVERY = 4000;
 const STALE_AFTER = 15000;
 const P2P_TIMEOUT = 12000;
 const RELAY_TIMEOUT = 15000;
+const RELAY_DELAY = 2500;
 
 /** 直接（WebRTC）でホストにつなぐ。つながったら channel を返す。 */
 export function dialP2P({ hostId, peerOptions, timeout = P2P_TIMEOUT }) {
@@ -111,7 +113,7 @@ export class PlayerNet {
    * @param {string} opts.hostId          PeerJS 上のホストの ID
    * @param {object} opts.peerOptions
    * @param {string[]} opts.brokers       中継に使う MQTT ブローカー（wss://…）
-   * @param {'auto'|'p2p'|'relay'} opts.mode
+   * @param {'auto'|'p2p'|'relay'|'sig'|'mqtt'} opts.mode  relay = 中継の両方
    * @param {(status:string)=>void} opts.onStatus
    * @param {()=>void} opts.onOpen        つながったとき（hello を送る）
    * @param {(msg:any)=>void} opts.onMessage
@@ -155,44 +157,68 @@ export class PlayerNet {
     this.attempting = true;
     clearTimeout(this.retryTimer);
     this._status(this.everConnected ? 'reconnecting' : 'connecting');
-    const { mode = 'auto' } = this.opts;
-    const tries = [];
+    const mode = this.opts.mode || 'auto';
+    const use = {
+      p2p: ['auto', 'p2p'].includes(mode),
+      sig: ['auto', 'relay', 'sig'].includes(mode),
+      mqtt: ['auto', 'relay', 'mqtt'].includes(mode) && Boolean(this.opts.brokers?.length),
+    };
     // つながらなかったときに原因を表示するための記録
-    const diag = { p2p: 'off', relay: 'off' };
+    const diag = { p2p: use.p2p ? 'trying' : 'off', sig: use.sig ? 'trying' : 'off', relay: use.mqtt ? 'trying' : 'off' };
     this.diag = diag;
-    if (mode !== 'relay') {
-      diag.p2p = 'trying';
-      const t = dialP2P({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions });
+    const track = (key, t) => {
       t.then(
-        () => (diag.p2p = 'ok'),
-        (e) => (diag.p2p = e?.type || e?.message || 'error'),
+        () => (diag[key] = 'ok'),
+        (e) => (diag[key] = key === 'relay' && e?.relay ? { reason: e.message, ...e.relay } : e?.type || e?.message || 'error'),
       );
-      tries.push(t);
-    }
-    if (mode !== 'p2p' && this.opts.brokers?.length) {
-      diag.relay = 'trying';
-      const t = dialRelay({ room: this.opts.room, brokers: this.opts.brokers, timeout: RELAY_TIMEOUT });
-      t.then(
-        () => (diag.relay = 'ok'),
-        (e) => (diag.relay = e?.relay ? { reason: e.message, ...e.relay } : e?.message || 'error'),
-      );
-      tries.push(t);
-    }
+      return t;
+    };
+    const tries = [];
+    const p2p = use.p2p ? track('p2p', dialP2P({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions })) : null;
+    if (p2p) tries.push(p2p);
+    const startRelays = () => {
+      const list = [];
+      if (use.sig) list.push(track('sig', dialSignal({ hostId: this.opts.hostId, peerOptions: this.opts.peerOptions })));
+      if (use.mqtt) list.push(track('relay', dialRelay({ room: this.opts.room, brokers: this.opts.brokers, timeout: RELAY_TIMEOUT })));
+      tries.push(...list);
+      return list;
+    };
+    // 直接つながればそれが一番よいので、中継は少し待ってから試す（直接が先に失敗したらすぐ試す）
+    const relays = p2p
+      ? new Promise((res) => {
+          const t = setTimeout(() => res(startRelays()), RELAY_DELAY);
+          p2p.then(
+            () => {
+              clearTimeout(t);
+              res([]);
+            },
+            () => {
+              clearTimeout(t);
+              res(startRelays());
+            },
+          );
+        })
+      : Promise.resolve(startRelays());
+    const relayWinner = relays.then((list) => (list.length ? Promise.any(list) : Promise.reject(new Error('none'))));
     let winner = null;
     try {
-      winner = await Promise.any(tries);
+      winner = await Promise.any(p2p ? [p2p, relayWinner] : [relayWinner]);
     } catch {
       winner = null;
     }
     // 遅れてつながった方は閉じる
-    for (const t of tries) {
-      t.then(
-        (ch) => {
-          if (ch !== winner) ch.close();
-        },
-        () => {},
-      );
-    }
+    const closeLosers = () => {
+      for (const t of tries) {
+        t.then(
+          (ch) => {
+            if (ch !== winner) ch.close();
+          },
+          () => {},
+        );
+      }
+    };
+    closeLosers();
+    relays.then(closeLosers);
     this.attempting = false;
     if (this.stopped) {
       winner?.close();
