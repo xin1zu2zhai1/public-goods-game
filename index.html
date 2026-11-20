@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>公共財ゲーム</title>
+  <meta name="description" content="授業用の公共財ゲーム（参加者用画面）">
+  <meta name="theme-color" content="#1d64d8">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%231d64d8'/%3E%3Ctext x='32' y='43' font-size='30' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='700'%3E%C2%A5%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap">
+  <link rel="stylesheet" href="css/player.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">公共財ゲーム</div>
+    <span class="who" id="who"></span>
+    <span class="spacer"></span>
+    <span class="net" id="netStatus" data-s="idle" role="status"></span>
+    <button class="btn small ghost" id="btnFont" type="button" aria-pressed="false" title="文字の大きさ">文字 大</button>
+  </header>
+  <div class="banner" id="banner" hidden role="status"></div>
+  <main class="wrap" id="screen" aria-live="polite"></main>
+  <div class="toast" id="toast" hidden role="status"></div>
+  <noscript>このページを使うには JavaScript を有効にしてください。</noscript>
+  <script src="vendor/peerjs.min.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
