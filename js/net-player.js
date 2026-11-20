@@ -4,7 +4,7 @@
 // 直接と PeerJS 中継は、PeerJS のサーバーへの接続（Peer）を1本だけ作って共用する。
 // 切れたら自動でつなぎ直す。
 /* global Peer */
-import { dialRelay, dialSignal, peerReady } from './relay.js?v=1.5.0';
+import { dialRelay, dialSignal, peerReady } from './relay.js?v=1.6.0';
 
 const PING_EVERY = 4000;
 const STALE_AFTER = 15000;

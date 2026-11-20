@@ -1,7 +1,7 @@
-import { PlayerNet } from './net-player.js?v=1.5.0';
-import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.5.0';
-import { lineChart, legend } from './chart.js?v=1.5.0';
-import { h, replace, yen, downloadText } from './dom.js?v=1.5.0';
+import { PlayerNet } from './net-player.js?v=1.6.0';
+import { PEER_ID_PREFIX, PROTOCOL_VERSION, peerOptionsFromParam, relayBrokersFromParam, newPid } from './config.js?v=1.6.0';
+import { lineChart, legend } from './chart.js?v=1.6.0';
+import { h, replace, yen, downloadText } from './dom.js?v=1.6.0';
 
 const params = new URLSearchParams(location.search);
 const peerParam = params.get('peer') || '';
